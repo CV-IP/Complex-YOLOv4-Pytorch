@@ -196,21 +196,35 @@ class YoloLayer(nn.Module):
             iou_scores, class_mask, obj_mask, noobj_mask, tx, ty, tw, th, tim, tre, tcls, tconf = self.build_targets(
                 out_boxes=out_boxes, pred_cls=pred_cls, target=targets, anchors=self.scaled_anchors)
 
-            iou_masked = iou_scores[obj_mask]  # size: (n_target_boxes,)
-            loss_box = (1. - iou_masked).sum() if reduction == 'sum' else (1. - iou_masked).mean()
+            loss_x = F.mse_loss(pred_x[obj_mask], tx[obj_mask], reduction=reduction)
+            loss_y = F.mse_loss(pred_y[obj_mask], ty[obj_mask], reduction=reduction)
+            loss_w = F.mse_loss(pred_w[obj_mask], tw[obj_mask], reduction=reduction)
+            loss_h = F.mse_loss(pred_h[obj_mask], th[obj_mask], reduction=reduction)
+            loss_im = F.mse_loss(pred_im[obj_mask], tim[obj_mask], reduction=reduction)
+            loss_re = F.mse_loss(pred_re[obj_mask], tre[obj_mask], reduction=reduction)
+            loss_im_re = ((1. - torch.sqrt(pred_im[obj_mask] ** 2 + pred_re[obj_mask] ** 2)) ** 2).mean()
+            loss_eular = loss_im + loss_re + loss_im_re
 
             loss_conf_obj = F.binary_cross_entropy(pred_conf[obj_mask], tconf[obj_mask], reduction=reduction)
             loss_conf_noobj = F.binary_cross_entropy(pred_conf[noobj_mask], tconf[noobj_mask], reduction=reduction)
             loss_obj = self.obj_scale * loss_conf_obj + self.noobj_scale * loss_conf_noobj
             loss_cls = F.binary_cross_entropy(pred_cls[obj_mask], tcls[obj_mask], reduction=reduction)
-            total_loss = loss_box * self.lbox_scale + loss_obj * self.lobj_scale + loss_cls * self.lcls_scale
+            total_loss = loss_eular + loss_obj + loss_cls + loss_x + loss_y + loss_w + loss_h
+            loss_iou = (1 - iou_scores[obj_mask]).mean()
 
             # Metrics (store loss values using tensorboard)
             self.metrics = {
                 "loss": to_cpu(total_loss).item(),
-                'loss_box': to_cpu(loss_box).item(),
+                "loss_x": to_cpu(loss_x).item(),
+                "loss_y": to_cpu(loss_y).item(),
+                "loss_w": to_cpu(loss_w).item(),
+                "loss_h": to_cpu(loss_h).item(),
+                "loss_im": to_cpu(loss_im).item(),
+                "loss_re": to_cpu(loss_re).item(),
+                'loss_eular': to_cpu(loss_eular).item(),
                 "loss_obj": to_cpu(loss_obj).item(),
-                "loss_cls": to_cpu(loss_cls).item()
+                "loss_cls": to_cpu(loss_cls).item(),
+                "loss_iou": to_cpu(loss_iou).item()
             }
 
             return output, total_loss
